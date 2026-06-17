@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MedBox — Hệ thống nhắc uống thuốc thông minh cho người cao tuổi</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+
+  :root {
+    --bg-base:    #0b0e14;
+    --bg-card:    #111622;
+    --bg-card2:   #161d2e;
+    --bg-hover:   #1c2438;
+    --border:     #1f2d45;
+    --accent:     #3b82f6;
+    --accent-glow:#3b82f620;
+    --teal:       #06b6d4;
+    --green:      #22c55e;
+    --yellow:     #eab308;
+    --red:        #ef4444;
+    --orange:     #f97316;
+    --purple:     #a855f7;
+    --text-1:     #f0f4ff;
+    --text-2:     #8a9bc0;
+    --text-3:     #4a5878;
+    --mono:       'JetBrains Mono', monospace;
+    --sans:       'Inter', sans-serif;
+    --radius:     12px;
+    --radius-lg:  18px;
+    --sidebar-w:  260px;
+  }
+
+  html[data-theme="light"] {
+    --bg-base:    #f4f6fb;
+    --bg-card:    #ffffff;
+    --bg-card2:   #ffffff;
+    --bg-hover:   #eef1f8;
+    --border:     #e1e6f0;
+    --accent:     #2563eb;
+    --accent-glow:#2563eb18;
+    --teal:       #0891b2;
+    --green:      #16a34a;
+    --yellow:     #ca8a04;
+    --red:        #dc2626;
+    --orange:     #ea580c;
+    --purple:     #9333ea;
+    --text-1:     #1a2236;
+    --text-2:     #5b6b8c;
+    --text-3:     #9aa6c0;
+  }
+  html[data-theme="light"] body { background: var(--bg-base); }
+  html[data-theme="light"] .card,
+  html[data-theme="light"] .stat-card,
+  html[data-theme="light"] .env-big-card,
+  html[data-theme="light"] .topbar,
+  html[data-theme="light"] .sidebar { box-shadow: 0 1px 3px rgba(20,30,60,0.06); }
+  html[data-theme="light"] .toast   { box-shadow: 0 4px 20px rgba(20,30,60,0.12); }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--sans); background: var(--bg-base); color: var(--text-1); min-height: 100vh; overflow-x: hidden; transition: background .25s, color .25s; }
+
+  /* TOPBAR */
+  .topbar { display:flex; align-items:center; justify-content:space-between; padding:0 20px; height:60px; background:var(--bg-card); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:200; transition:background .25s,border-color .25s; }
+  .topbar-left { display:flex; align-items:center; gap:14px; }
+  .hamburger { width:36px; height:36px; border-radius:8px; background:transparent; border:1px solid var(--border); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; cursor:pointer; transition:background .15s; flex-shrink:0; }
+  .hamburger:hover { background:var(--bg-hover); }
+  .hamburger span { display:block; width:18px; height:2px; background:var(--text-2); border-radius:2px; transition:all .25s; }
+  .hamburger.open span:nth-child(1) { transform:translateY(7px) rotate(45deg); }
+  .hamburger.open span:nth-child(2) { opacity:0; transform:scaleX(0); }
+  .hamburger.open span:nth-child(3) { transform:translateY(-7px) rotate(-45deg); }
+  .logo { display:flex; align-items:center; gap:10px; }
+  .logo-icon { width:32px; height:32px; border-radius:8px; background:linear-gradient(135deg,var(--accent),var(--teal)); display:flex; align-items:center; justify-content:center; font-size:16px; }
+  .logo-name { font-weight:700; font-size:17px; letter-spacing:-0.3px; }
+  .logo-sub  { font-size:11px; color:var(--text-2); margin-top:1px; }
+  .topbar-right { display:flex; align-items:center; gap:12px; }
+  .mqtt-status { display:flex; align-items:center; gap:7px; font-size:12px; color:var(--text-2); background:var(--bg-base); border:1px solid var(--border); padding:5px 12px; border-radius:20px; }
+  .mqtt-dot { width:8px; height:8px; border-radius:50%; background:var(--text-3); transition:background .3s; }
+  .mqtt-dot.connected { background:var(--green); box-shadow:0 0 6px var(--green); }
+  .mqtt-dot.connecting { background:var(--yellow); box-shadow:0 0 6px var(--yellow); animation:blink .8s infinite; }
+  .mqtt-dot.error { background:var(--red); }
+  @keyframes blink { 0%,100%{opacity:1}50%{opacity:.3} }
+  .sos-badge { display:none; align-items:center; gap:6px; background:var(--red); color:#fff; font-size:12px; font-weight:700; padding:5px 14px; border-radius:20px; animation:pulse-sos 1s infinite; }
+  .sos-badge.active { display:flex; }
+  @keyframes pulse-sos { 0%,100%{opacity:1}50%{opacity:.6} }
+  .theme-toggle { width:40px; height:40px; border-radius:10px; background:var(--bg-base); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:17px; transition:background .15s,transform .2s; flex-shrink:0; }
+  .theme-toggle:hover { background:var(--bg-hover); }
+  .theme-toggle:active { transform:scale(.92); }
+
+  /* LAYOUT */
+  .app-body { display:flex; min-height:calc(100vh - 60px); position:relative; }
+  .sidebar { width:var(--sidebar-w); background:var(--bg-card); border-right:1px solid var(--border); padding:20px 0; display:flex; flex-direction:column; gap:4px; position:fixed; top:60px; left:0; bottom:0; z-index:150; overflow-y:auto; transition:transform .25s ease,background .25s,border-color .25s; }
+  .sidebar.hidden { transform:translateX(-100%); }
+  .sidebar-overlay { display:none; position:fixed; inset:0; top:60px; background:rgba(0,0,0,.5); z-index:140; }
+  .sidebar-overlay.show { display:block; }
+  .nav-label { font-size:10px; font-weight:600; color:var(--text-3); letter-spacing:1px; text-transform:uppercase; padding:14px 20px 6px; }
+  .nav-item { display:flex; align-items:center; gap:10px; padding:10px 20px; margin:0 8px; border-radius:8px; font-size:13px; color:var(--text-2); cursor:pointer; transition:all .15s; border:1px solid transparent; white-space:nowrap; }
+  .nav-item:hover { background:var(--bg-hover); color:var(--text-1); }
+  .nav-item.active { background:var(--accent-glow); color:var(--accent); border-color:#3b82f630; }
+  .nav-icon { font-size:16px; width:20px; text-align:center; }
+  .sidebar-footer { margin-top:auto; padding:16px 20px; border-top:1px solid var(--border); font-size:11px; color:var(--text-3); line-height:1.7; }
+  .content { margin-left:var(--sidebar-w); padding:24px 28px; flex:1; overflow-y:auto; transition:margin-left .25s ease; min-height:calc(100vh - 60px); }
+  .content.full { margin-left:0; }
+  .page-title { font-size:20px; font-weight:700; margin-bottom:4px; }
+  .page-sub   { font-size:13px; color:var(--text-2); margin-bottom:24px; }
+
+  /* CARDS */
+  .card { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-lg); padding:20px 22px; transition:background .25s,border-color .25s; }
+  .card-title { font-size:11px; font-weight:600; color:var(--text-2); text-transform:uppercase; letter-spacing:.8px; margin-bottom:12px; }
+  .stat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:20px; }
+  .stat-card { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:18px 20px; position:relative; overflow:hidden; transition:background .25s,border-color .25s; }
+  .stat-card::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:var(--c,var(--accent)); }
+  .stat-label { font-size:11px; color:var(--text-2); margin-bottom:8px; }
+  .stat-value { font-family:var(--mono); font-size:26px; font-weight:600; line-height:1; }
+  .stat-sub   { font-size:11px; color:var(--text-3); margin-top:6px; }
+  .stat-icon  { position:absolute; right:16px; top:16px; font-size:22px; opacity:.25; }
+  .env-big { display:flex; gap:14px; margin-bottom:20px; }
+  .env-big-card { flex:1; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:18px 20px; position:relative; overflow:hidden; transition:background .25s,border-color .25s; }
+  .env-big-card::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:var(--c,var(--accent)); }
+  .env-big-val  { font-family:var(--mono); font-size:32px; font-weight:600; }
+  .env-big-lbl  { font-size:11px; color:var(--text-2); margin-top:5px; }
+  .env-big-icon { position:absolute; right:14px; top:14px; font-size:28px; opacity:.2; }
+
+  /* STORAGE WARN */
+  .storage-warn { display:none; align-items:flex-start; gap:12px; background:#f9731618; border:1px solid #f9731640; border-radius:var(--radius); padding:14px 18px; margin-bottom:20px; animation:warn-pulse 2s infinite; }
+  .storage-warn.show { display:flex; }
+  @keyframes warn-pulse { 0%,100%{border-color:#f9731640}50%{border-color:#f97316} }
+  .storage-warn-icon  { font-size:24px; flex-shrink:0; margin-top:1px; }
+  .storage-warn-title { font-size:13px; font-weight:700; color:var(--orange); margin-bottom:3px; }
+  .storage-warn-body  { font-size:12px; color:var(--text-2); line-height:1.6; }
+
+  /* MQTT CONNECTING BANNER */
+  .mqtt-banner { display:none; align-items:center; gap:10px; background:#3b82f610; border:1px solid #3b82f630; border-radius:var(--radius); padding:10px 16px; margin-bottom:16px; font-size:12px; color:var(--accent); }
+  .mqtt-banner.show { display:flex; }
+  .mqtt-spinner { width:14px; height:14px; border:2px solid #3b82f640; border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; flex-shrink:0; }
+  @keyframes spin { to{transform:rotate(360deg)} }
+
+  .row2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px; }
+  .row3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-bottom:16px; }
+
+  /* LOCK */
+  .lock-display { display:flex; flex-direction:column; align-items:center; justify-content:center; height:130px; gap:10px; }
+  .lock-icon-wrap { width:64px; height:64px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:28px; transition:all .4s; }
+  .lock-icon-wrap.locked   { background:#22c55e18; border:2px solid var(--green); }
+  .lock-icon-wrap.unlocked { background:#eab30818; border:2px solid var(--yellow); animation:glow-yellow 1.2s infinite; }
+  @keyframes glow-yellow { 0%,100%{box-shadow:0 0 0 0 #eab30840}50%{box-shadow:0 0 0 12px #eab30800} }
+  .lock-label { font-size:14px; font-weight:600; }
+  .lock-time  { font-size:11px; color:var(--text-2); }
+
+  /* DOSE */
+  .dose-row { display:flex; flex-direction:column; gap:10px; }
+  .dose-item { display:flex; align-items:center; justify-content:space-between; background:var(--bg-base); border-radius:8px; padding:10px 14px; transition:background .25s; }
+  .dose-time { font-family:var(--mono); font-size:13px; font-weight:600; }
+  .dose-name { font-size:12px; color:var(--text-2); }
+  .pill { font-size:11px; font-weight:600; padding:3px 10px; border-radius:20px; letter-spacing:.4px; }
+  .pill.done    { background:#22c55e20; color:var(--green); }
+  .pill.pending { background:#eab30820; color:var(--yellow); }
+  .pill.missed  { background:#ef444420; color:var(--red); }
+  .pill.waiting { background:#3b82f620; color:var(--accent); }
+
+  /* MED LIST */
+  .med-list { display:flex; flex-direction:column; gap:8px; }
+  .med-item { display:flex; align-items:center; justify-content:space-between; background:var(--bg-base); border-radius:8px; padding:10px 14px; transition:background .25s; }
+  .med-name { font-size:13px; font-weight:500; }
+  .med-qty  { font-family:var(--mono); font-size:12px; color:var(--text-2); }
+  .med-exp  { font-size:11px; padding:2px 8px; border-radius:10px; }
+  .med-exp.ok      { background:#22c55e18; color:var(--green); }
+  .med-exp.warning { background:#eab30818; color:var(--yellow); }
+  .med-exp.expired { background:#ef444418; color:var(--red); }
+
+  /* RFID */
+  .rfid-list { display:flex; flex-direction:column; gap:8px; }
+  .rfid-item { display:flex; align-items:center; justify-content:space-between; background:var(--bg-base); border-radius:8px; padding:10px 14px; transition:background .25s; }
+  .rfid-uid  { font-family:var(--mono); font-size:12px; color:var(--accent); }
+  .rfid-name { font-size:12px; color:var(--text-2); }
+  .rfid-toggle { width:36px; height:20px; border-radius:10px; cursor:pointer; border:none; position:relative; transition:background .2s; }
+  .rfid-toggle.on  { background:var(--green); }
+  .rfid-toggle.off { background:var(--text-3); }
+  .rfid-toggle::after { content:''; position:absolute; top:2px; width:16px; height:16px; border-radius:50%; background:#fff; transition:left .2s; }
+  .rfid-toggle.on::after  { left:18px; }
+  .rfid-toggle.off::after { left:2px; }
+
+  /* SCHEDULE */
+  .schedule-form { display:flex; flex-direction:column; gap:14px; }
+  .schedule-row  { display:flex; align-items:center; gap:12px; }
+  .schedule-label { font-size:12px; color:var(--text-2); width:50px; }
+  .time-input { font-family:var(--mono); font-size:14px; background:var(--bg-base); border:1px solid var(--border); color:var(--text-1); border-radius:8px; padding:7px 12px; width:110px; outline:none; transition:border .2s,background .25s,color .25s; }
+  .time-input:focus { border-color:var(--accent); }
+  .med-name-input { font-family:var(--sans); font-size:13px; background:var(--bg-base); border:1px solid var(--border); color:var(--text-1); border-radius:8px; padding:7px 12px; flex:1; outline:none; transition:border .2s,background .25s,color .25s; }
+  .med-name-input:focus { border-color:var(--accent); }
+  .btn { font-family:var(--sans); font-size:13px; font-weight:600; border:none; border-radius:8px; cursor:pointer; padding:9px 18px; transition:all .15s; }
+  .btn-primary { background:var(--accent); color:#fff; }
+  .btn-primary:hover { background:#2563eb; }
+  .btn-danger  { background:#ef444420; color:var(--red); border:1px solid #ef444440; }
+  .btn-danger:hover  { background:#ef444430; }
+  .btn-teal    { background:#06b6d420; color:var(--teal); border:1px solid #06b6d440; }
+  .btn-teal:hover    { background:#06b6d430; }
+  .btn-sm { padding:5px 12px; font-size:12px; }
+
+  /* SERVO */
+  .servo-btns { display:flex; gap:12px; margin-top:14px; }
+  .servo-btn { flex:1; padding:14px; border-radius:10px; font-size:13px; font-weight:600; cursor:pointer; border:none; transition:all .15s; display:flex; flex-direction:column; align-items:center; gap:6px; }
+  .servo-btn-open  { background:#22c55e18; color:var(--green); border:1px solid #22c55e40; }
+  .servo-btn-open:hover  { background:#22c55e30; }
+  .servo-btn-close { background:#ef444418; color:var(--red); border:1px solid #ef444440; }
+  .servo-btn-close:hover { background:#ef444428; }
+  .servo-btn-icon { font-size:26px; }
+
+  /* CHART */
+  .chart-wrap { position:relative; height:200px; }
+
+  /* HISTORY TABLE */
+  .hist-table { width:100%; border-collapse:collapse; font-size:12px; }
+  .hist-table th { text-align:left; padding:8px 12px; color:var(--text-3); font-weight:500; border-bottom:1px solid var(--border); }
+  .hist-table td { padding:9px 12px; border-bottom:1px solid var(--border); }
+  .hist-table tr:last-child td { border-bottom:none; }
+  .hist-table tr:hover td { background:var(--bg-hover); }
+
+  /* LOG */
+  .log-box { background:var(--bg-base); border-radius:8px; padding:12px; height:130px; overflow-y:auto; font-family:var(--mono); font-size:11px; color:var(--text-2); display:flex; flex-direction:column; gap:4px; transition:background .25s; }
+  .log-line { display:flex; gap:10px; }
+  .log-time { color:var(--text-3); flex-shrink:0; }
+  .log-msg.info    { color:var(--accent); }
+  .log-msg.success { color:var(--green); }
+  .log-msg.warn    { color:var(--yellow); }
+  .log-msg.error   { color:var(--red); }
+
+  /* CLOCK */
+  .clock-display { font-family:var(--mono); font-size:38px; font-weight:600; color:var(--text-1); text-align:center; letter-spacing:2px; margin:8px 0 4px; }
+  .clock-date    { font-size:12px; color:var(--text-2); text-align:center; }
+
+  /* MQTT FORM */
+  .mqtt-form { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+  .form-group { display:flex; flex-direction:column; gap:5px; }
+  .form-label { font-size:11px; color:var(--text-2); }
+  .form-input { font-family:var(--mono); font-size:12px; background:var(--bg-base); border:1px solid var(--border); color:var(--text-1); border-radius:8px; padding:7px 10px; width:160px; outline:none; transition:border .2s,background .25s,color .25s; }
+  .form-input:focus { border-color:var(--accent); }
+  .form-input.short { width:90px; }
+
+  /* TOAST */
+  .toast-wrap { position:fixed; bottom:24px; right:24px; display:flex; flex-direction:column; gap:8px; z-index:999; }
+  .toast { background:var(--bg-card2); border:1px solid var(--border); border-radius:10px; padding:12px 18px; font-size:13px; min-width:220px; display:flex; align-items:center; gap:10px; animation:toast-in .25s ease; box-shadow:0 4px 20px #00000060; }
+  .toast.success { border-left:3px solid var(--green); }
+  .toast.error   { border-left:3px solid var(--red); }
+  .toast.info    { border-left:3px solid var(--accent); }
+  @keyframes toast-in { from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none} }
+
+  /* SOS OVERLAY */
+  .sos-overlay { display:none; position:fixed; inset:0; z-index:9999; background:rgba(10,0,0,.92); backdrop-filter:blur(4px); flex-direction:column; align-items:center; justify-content:center; gap:28px; animation:sos-bg-flash 1s infinite; }
+  .sos-overlay.active { display:flex; }
+  @keyframes sos-bg-flash { 0%,49%{background:rgba(10,0,0,.92)}50%,100%{background:rgba(120,0,0,.88)} }
+  .sos-overlay::before { content:''; position:fixed; inset:0; border:6px solid var(--red); pointer-events:none; animation:sos-border .6s infinite; }
+  @keyframes sos-border { 0%,100%{opacity:1;box-shadow:inset 0 0 40px #ef444460,0 0 40px #ef444440}50%{opacity:.3;box-shadow:none} }
+  .sos-icon  { font-size:90px; animation:sos-icon-shake .5s infinite; filter:drop-shadow(0 0 30px #ef4444); }
+  @keyframes sos-icon-shake { 0%,100%{transform:rotate(-6deg) scale(1.05)}50%{transform:rotate(6deg) scale(.95)} }
+  .sos-title { font-size:52px; font-weight:900; color:#fff; letter-spacing:6px; text-shadow:0 0 40px #ef4444,0 0 80px #ef444480; animation:sos-text-pulse .8s infinite; }
+  @keyframes sos-text-pulse { 0%,100%{opacity:1;transform:scale(1)}50%{opacity:.8;transform:scale(1.03)} }
+  .sos-sub  { font-size:20px; color:#ffaaaa; letter-spacing:2px; text-align:center; line-height:1.7; }
+  .sos-time { font-family:var(--mono); font-size:16px; color:#ff6666; background:#ff000020; border:1px solid #ef444440; border-radius:8px; padding:10px 24px; }
+  .sos-actions { display:flex; gap:16px; margin-top:8px; }
+  .sos-btn-stop { font-family:var(--sans); font-weight:700; font-size:16px; background:var(--red); color:#fff; border:none; border-radius:12px; padding:16px 40px; cursor:pointer; box-shadow:0 0 30px #ef444460; transition:all .15s; letter-spacing:1px; }
+  .sos-btn-stop:hover { background:#dc2626; transform:scale(1.04); }
+  .sos-btn-call { font-family:var(--sans); font-weight:700; font-size:16px; background:transparent; color:#fff; border:2px solid #ffffff50; border-radius:12px; padding:16px 32px; cursor:pointer; transition:all .15s; }
+  .sos-btn-call:hover { background:#ffffff15; border-color:#fff; }
+
+  ::-webkit-scrollbar { width:6px; height:6px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  ::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+  .divider { height:1px; background:var(--border); margin:14px 0; }
+  .add-med-form { display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
+
+  @media (max-width:768px) {
+    .content { margin-left:0 !important; padding:16px; }
+    .sidebar { transform:translateX(-100%); }
+    .sidebar.open { transform:translateX(0); }
+    .stat-grid { grid-template-columns:1fr 1fr; }
+    .row2,.row3 { grid-template-columns:1fr; }
+    .env-big { flex-direction:column; }
+    .mqtt-status span { display:none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-left">
+    <button class="hamburger" id="hamburger" onclick="toggleSidebar()" aria-label="Mở menu">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="logo">
+      <div class="logo-icon">💊</div>
+      <div>
+        <div class="logo-name">MedBox</div>
+        <div class="logo-sub">Hệ thống nhắc uống thuốc thông minh cho người cao tuổi</div>
+      </div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <div class="sos-badge" id="sosBadge">🚨 KHẨN CẤP SOS</div>
+    <div class="mqtt-status">
+      <div class="mqtt-dot" id="mqttDot"></div>
+      <span id="mqttLabel">Đang kết nối...</span>
+    </div>
+    <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Đổi giao diện sáng / tối">🌙</button>
+  </div>
+</header>
+
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+<div class="app-body">
+  <aside class="sidebar" id="sidebar">
+    <div class="nav-label">Tổng quan</div>
+    <div class="nav-item active" onclick="showPage('dashboard')"><span class="nav-icon">📊</span> Bảng điều khiển</div>
+    <div class="nav-item" onclick="showPage('schedule')"><span class="nav-icon">⏰</span> Lịch uống thuốc</div>
+    <div class="nav-item" onclick="showPage('medicines')"><span class="nav-icon">💊</span> Quản lý thuốc</div>
+    <div class="nav-label">Thiết bị</div>
+    <div class="nav-item" onclick="showPage('control')"><span class="nav-icon">🔧</span> Điều khiển từ xa</div>
+    <div class="nav-item" onclick="showPage('rfid')"><span class="nav-icon">📡</span> Quản lý thẻ RFID</div>
+    <div class="nav-label">Dữ liệu</div>
+    <div class="nav-item" onclick="showPage('history')"><span class="nav-icon">📋</span> Lịch sử uống thuốc</div>
+    <div class="nav-item" onclick="showPage('settings')"><span class="nav-icon">⚙️</span> Cài đặt MQTT</div>
+    <div class="sidebar-footer">Phuoc Thien — B2304668<br>© 2026 MedBox</div>
+  </aside>
+  <main class="content" id="content"></main>
+</div>
+
+<!-- SOS OVERLAY -->
+<div class="sos-overlay" id="sosOverlay">
+  <div class="sos-icon">🚨</div>
+  <div class="sos-title">KHẨN CẤP SOS</div>
+  <div class="sos-sub">Người bệnh đang cần hỗ trợ khẩn cấp!<br>Tín hiệu nhận từ thiết bị ESP32</div>
+  <div class="sos-time" id="sosTime">Nhận lúc: --:--:--</div>
+  <div class="sos-actions">
+    <button class="sos-btn-stop" onclick="dismissSOS()">✅ Đã xử lý — Tắt cảnh báo</button>
+    <button class="sos-btn-call" onclick="callEmergency()">📞 Gọi cấp cứu 115</button>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script>
+// ══════════════════════════════════════════════════════
+// THEME
+// ══════════════════════════════════════════════════════
+function applyTheme(theme, doRender){
+  document.documentElement.setAttribute('data-theme', theme);
+  const btn = document.getElementById('themeToggle');
+  if(btn) btn.textContent = theme==='light' ? '☀️' : '🌙';
+  if(doRender) render();
+}
+function toggleTheme(){
+  const cur = document.documentElement.getAttribute('data-theme')==='light' ? 'dark' : 'light';
+  applyTheme(cur, true);
+}
+function themeColors(){
+  const light = document.documentElement.getAttribute('data-theme')==='light';
+  return { text2: light?'#5b6b8c':'#8a9bc0', grid: light?'#e1e6f0':'#1f2d45' };
+}
+applyTheme('dark');
+
+// ══════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════
+const TEMP_WARN = 32;
+const HUM_WARN  = 80;
+
+const state = {
+  // ★ CẤU HÌNH MQTT — HiveMQ public broker
+  mqtt: {
+    broker: 'broker.hivemq.com',
+    port:   8884,          // WebSocket SSL
+    user:   '',
+    pass:   '',
+    topic:  'medbox_b2304668_pt'
+  },
+  client: null,
+  connected: false,
+  sensor: { temp:'--', hum:'--', time:'--:--:--', date:'--/--/----', day:'--' },
+  box: { locked:true, lastAction:null },
+  sos: false,
+  dhtWarn: false,
+  schedule: [
+    { id:1, session:'Sáng',  hour:7,  min:0,  med:'Vitamin C 500mg', done:false },
+    { id:2, session:'Trưa',  hour:12, min:0,  med:'Metformin 500mg', done:false },
+    { id:3, session:'Chiều', hour:18, min:0,  med:'Omeprazole 20mg', done:false },
+  ],
+  medicines: [
+    { id:1, name:'Vitamin C 500mg',  qty:30, exp:'2026-12', status:'ok' },
+    { id:2, name:'Metformin 500mg',  qty:14, exp:'2025-08', status:'warning' },
+    { id:3, name:'Omeprazole 20mg',  qty:6,  exp:'2024-12', status:'expired' },
+    { id:4, name:'Aspirin 81mg',     qty:60, exp:'2027-03', status:'ok' },
+  ],
+  rfid: [
+    { uid:'510A1E16', name:'Thẻ chính (bệnh nhân)', active:true },
+    { uid:'A2B3C4D5', name:'Thẻ phụ (người thân)',  active:true },
+  ],
+  history: [], chartData: { labels:[], done:[], missed:[] }, logs: [],
+  currentPage: 'dashboard',
+  sidebarOpen: true,
+};
+
+// Seed history chart
+const _sessions = ['Sáng','Trưa','Chiều'];
+for(let d=6; d>=0; d--){
+  const dt = new Date(); dt.setDate(dt.getDate()-d);
+  state.chartData.labels.push(`${dt.getDate()}/${dt.getMonth()+1}`);
+  let done=0, missed=0;
+  _sessions.forEach(s=>{
+    const r = Math.random();
+    const status = r>.85?'missed':r>.7?'pending':'done';
+    if(status==='done') done++;
+    if(status==='missed') missed++;
+    if(d<2) state.history.unshift({
+      date: dt.toLocaleDateString('vi-VN'), session: s,
+      med: state.schedule.find(x=>x.session===s)?.med||'—',
+      status, uid: status==='done'?'510A1E16':'—',
+      time: `${7+((_sessions.indexOf(s))*6)}:00`
+    });
+  });
+  state.chartData.done.push(done);
+  state.chartData.missed.push(missed);
+}
+
+// ══════════════════════════════════════════════════════
+// LOG & TOAST
+// ══════════════════════════════════════════════════════
+function log(msg, type='info'){
+  const now = new Date().toLocaleTimeString('vi-VN');
+  state.logs.unshift({time:now, msg, type});
+  if(state.logs.length>50) state.logs.pop();
+}
+function toast(msg, type='info'){
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.innerHTML = `<span>${type==='success'?'✅':type==='error'?'❌':'ℹ️'}</span><span>${msg}</span>`;
+  document.getElementById('toastWrap').prepend(el);
+  setTimeout(()=>el.remove(), 3500);
+}
+
+// ══════════════════════════════════════════════════════
+// SIDEBAR
+// ══════════════════════════════════════════════════════
+function toggleSidebar(){
+  const sb = document.getElementById('sidebar');
+  const hb = document.getElementById('hamburger');
+  const ov = document.getElementById('sidebarOverlay');
+  const ct = document.getElementById('content');
+  if(window.innerWidth<=768){
+    sb.classList.toggle('open');
+    ov.classList.toggle('show', sb.classList.contains('open'));
+    hb.classList.toggle('open', sb.classList.contains('open'));
+  } else {
+    state.sidebarOpen = !state.sidebarOpen;
+    sb.classList.toggle('hidden', !state.sidebarOpen);
+    ct.classList.toggle('full', !state.sidebarOpen);
+    hb.classList.toggle('open', !state.sidebarOpen);
+  }
+}
+function closeSidebar(){
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebarOverlay').classList.remove('show');
+  document.getElementById('hamburger').classList.remove('open');
+}
+window.addEventListener('resize',()=>{
+  if(window.innerWidth>768){
+    document.getElementById('sidebarOverlay').classList.remove('show');
+    document.getElementById('sidebar').classList.remove('open');
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// STORAGE WARNING
+// ══════════════════════════════════════════════════════
+function checkStorageWarn(temp, hum){
+  const warn = parseFloat(temp) >= TEMP_WARN || parseFloat(hum) >= HUM_WARN;
+  state.dhtWarn = warn;
+  const el = document.getElementById('storageWarn');
+  if(el) el.classList.toggle('show', warn);
+  return warn;
+}
+
+// ══════════════════════════════════════════════════════
+// MQTT — TỰ ĐỘNG KẾT NỐI KHI MỞ TRANG
+// ══════════════════════════════════════════════════════
+function mqttConnect(){
+  if(state.client) state.client.end(true);
+
+  const {broker, port, user, pass, topic} = state.mqtt;
+
+  // ★ Dùng wss:// cho HiveMQ public (port 8884)
+  const url = `wss://${broker}:${port}/mqtt`;
+
+  log(`Đang kết nối MQTT ${broker}:${port}...`, 'info');
+  updateMqttUI('connecting');
+
+  const opts = { clientId: 'medbox_web_' + Math.random().toString(16).slice(2) };
+  if(user){ opts.username = user; opts.password = pass; }
+
+  const client = mqtt.connect(url, opts);
+  state.client = client;
+
+  client.on('connect', ()=>{
+    state.connected = true;
+    updateMqttUI('connected');
+    client.subscribe(`${topic}/sensor`);
+    client.subscribe(`${topic}/status`);
+    client.subscribe(`${topic}/sos`);
+    client.subscribe(`${topic}/rfid`);
+    client.subscribe(`${topic}/schedule`);
+    log('Kết nối MQTT thành công ✓', 'success');
+    toast('Đã kết nối MQTT · ' + broker, 'success');
+    render();
+  });
+
+  client.on('message', (t, payload)=>{
+    try {
+      const data = JSON.parse(payload.toString());
+      handleMqttMsg(t.replace(topic+'/', ''), data);
+    } catch(e) {}
+  });
+
+  client.on('error', err=>{
+    state.connected = false;
+    updateMqttUI('error');
+    log('Lỗi MQTT: ' + err.message, 'error');
+  });
+
+  client.on('close', ()=>{
+    state.connected = false;
+    updateMqttUI('error');
+    log('Mất kết nối MQTT — đang thử lại...', 'warn');
+    render();
+  });
+
+  client.on('reconnect', ()=>{
+    updateMqttUI('connecting');
+    log('Đang kết nối lại MQTT...', 'warn');
+  });
+}
+
+// ══════════════════════════════════════════════════════
+// XỬ LÝ MQTT MESSAGE
+// ══════════════════════════════════════════════════════
+function handleMqttMsg(topic, data){
+
+  // ── Sensor: nhiệt độ, độ ẩm, thời gian ──
+  if(topic === 'sensor'){
+    state.sensor = {...state.sensor, ...data};
+    log(`Sensor: ${data.temp}°C  ${data.hum}%`, 'info');
+    checkStorageWarn(data.temp, data.hum);
+    if(state.currentPage === 'dashboard') render();
+  }
+
+  // ── Status: trạng thái hộp + cảnh báo DHT từ ESP32 ──
+  if(topic === 'status'){
+    if(data.box !== undefined){
+      state.box.locked = (data.box === 'locked');
+      log(`Hộp thuốc: ${data.box}`, data.box==='locked'?'success':'warn');
+    }
+    // ★ Nhận cảnh báo DHT trực tiếp từ ESP32
+    if(data.dht_warn !== undefined){
+      const wasWarn = state.dhtWarn;
+      if(data.temp !== undefined) state.sensor.temp = data.temp;
+      if(data.hum  !== undefined) state.sensor.hum  = data.hum;
+      checkStorageWarn(state.sensor.temp, state.sensor.hum);
+      if(data.dht_warn && !wasWarn){
+        toast('🌡️ Cảnh báo: Nhiệt/ẩm vượt ngưỡng bảo quản!', 'error');
+        log(`DHT cảnh báo: ${state.sensor.temp}°C / ${state.sensor.hum}%`, 'error');
+      } else if(!data.dht_warn && wasWarn){
+        toast('✅ Nhiệt/ẩm đã trở về ngưỡng an toàn', 'success');
+        log('DHT: trở về ngưỡng an toàn', 'success');
+      }
+    }
+    render();
+  }
+
+  // ── SOS ──
+  if(topic === 'sos'){
+    const wasActive = state.sos;
+    state.sos = !!data.active;
+    document.getElementById('sosBadge').classList.toggle('active', state.sos);
+    if(state.sos && !wasActive) activateSOS();
+    else if(!state.sos && wasActive) hideSOS();
+  }
+
+  // ── RFID: sự kiện quét thẻ ──
+  if(topic === 'rfid'){
+    const entry = {
+      date: new Date().toLocaleDateString('vi-VN'),
+      session: data.session||'—', med: data.med||'—',
+      status: data.confirmed ? 'done' : 'pending',
+      uid: data.uid, time: new Date().toLocaleTimeString('vi-VN')
+    };
+    state.history.unshift(entry);
+    if(data.confirmed){
+      toast(`✅ Đã uống thuốc — ${data.session}`, 'success');
+      log(`Xác nhận uống thuốc: ${data.uid}`, 'success');
+      // Cập nhật trạng thái done cho lịch
+      const s = state.schedule.find(x=>x.session===data.session||
+        (data.session==='Sang'&&x.session==='Sáng')||
+        (data.session==='Trua'&&x.session==='Trưa')||
+        (data.session==='Chieu'&&x.session==='Chiều'));
+      if(s) s.done = true;
+    } else {
+      log(`Quét thẻ: ${data.uid} — ${data.session}`, 'info');
+    }
+    render();
+  }
+
+  // ── Schedule đồng bộ từ thiết bị ──
+  if(topic === 'schedule'){
+    if(Array.isArray(data)){
+      data.forEach(s=>{
+        const sc = state.schedule.find(x=>x.id===s.id);
+        if(sc){ sc.hour=s.hour; sc.min=s.min; sc.med=s.med; }
+      });
+      log('Lịch đã đồng bộ từ thiết bị', 'success');
+      if(state.currentPage==='schedule') render();
+    }
+  }
+}
+
+function publish(subtopic, payload){
+  if(!state.connected){ toast('Chưa kết nối MQTT','error'); return; }
+  state.client.publish(`${state.mqtt.topic}/${subtopic}`, JSON.stringify(payload));
+  log(`Gửi → ${subtopic}: ${JSON.stringify(payload)}`, 'info');
+}
+
+// ── UI trạng thái MQTT ──
+function updateMqttUI(status){
+  const dot = document.getElementById('mqttDot');
+  const lbl = document.getElementById('mqttLabel');
+  if(!dot) return;
+  dot.className = 'mqtt-dot ' + status;
+  if(status==='connected') lbl.textContent = `Đã kết nối · ${state.mqtt.broker}`;
+  else if(status==='connecting') lbl.textContent = 'Đang kết nối...';
+  else lbl.textContent = 'Mất kết nối';
+}
+
+// ══════════════════════════════════════════════════════
+// CLOCK — cập nhật mỗi giây
+// ══════════════════════════════════════════════════════
+setInterval(()=>{
+  const now = new Date();
+  const days = ['Chủ Nhật','Thứ 2','Thứ 3','Thứ 4','Thứ 5','Thứ 6','Thứ 7'];
+  state.sensor.time = now.toLocaleTimeString('vi-VN');
+  state.sensor.date = now.toLocaleDateString('vi-VN');
+  state.sensor.day  = days[now.getDay()];
+  const el = document.getElementById('liveClock');
+  const de = document.getElementById('liveDate');
+  if(el) el.textContent = state.sensor.time;
+  if(de) de.textContent = `${state.sensor.day} — ${state.sensor.date}`;
+}, 1000);
+
+// ══════════════════════════════════════════════════════
+// PAGES
+// ══════════════════════════════════════════════════════
+function showPage(page){
+  state.currentPage = page;
+  document.querySelectorAll('.nav-item').forEach(el=>{
+    el.classList.toggle('active', el.getAttribute('onclick')?.includes(page));
+  });
+  if(window.innerWidth<=768) closeSidebar();
+  render();
+}
+
+function render(){
+  const c = document.getElementById('content');
+  switch(state.currentPage){
+    case 'dashboard': c.innerHTML = pageDashboard(); break;
+    case 'schedule':  c.innerHTML = pageSchedule();  break;
+    case 'medicines': c.innerHTML = pageMedicines(); break;
+    case 'control':   c.innerHTML = pageControl();   break;
+    case 'rfid':      c.innerHTML = pageRFID();      break;
+    case 'history':   c.innerHTML = pageHistory();   break;
+    case 'settings':  c.innerHTML = pageSettings();  break;
+  }
+  afterRender();
+}
+
+// ── DASHBOARD ──
+function pageDashboard(){
+  const expiredCount = state.medicines.filter(m=>m.status==='expired').length;
+  const lowQty       = state.medicines.filter(m=>m.qty<=10).length;
+  const todayDone    = state.history.filter(h=>{
+    const today = new Date().toLocaleDateString('vi-VN');
+    return h.date===today && h.status==='done';
+  }).length;
+  const tempWarn    = state.sensor.temp!=='--' && parseFloat(state.sensor.temp) >= TEMP_WARN;
+  const humWarn     = state.sensor.hum!=='--'  && parseFloat(state.sensor.hum)  >= HUM_WARN;
+  const storageAlert = tempWarn || humWarn;
+
+  return `
+  <div class="page-title">Bảng điều khiển</div>
+  <div class="page-sub">Tổng quan hệ thống nhắc uống thuốc · cập nhật real-time qua MQTT</div>
+
+  <!-- Banner kết nối MQTT -->
+  <div class="mqtt-banner ${state.connected?'':'show'}" id="mqttBanner">
+    <div class="mqtt-spinner"></div>
+    <span>Đang kết nối tới MQTT broker <b>${state.mqtt.broker}</b> — dữ liệu sẽ hiện khi kết nối thành công...</span>
+  </div>
+
+  <!-- Cảnh báo bảo quản thuốc -->
+  <div class="storage-warn ${storageAlert?'show':''}" id="storageWarn">
+    <div class="storage-warn-icon">🌡️</div>
+    <div>
+      <div class="storage-warn-title">⚠️ CẢNH BÁO — Điều kiện bảo quản thuốc không đảm bảo!</div>
+      <div class="storage-warn-body">
+        ${tempWarn?`Nhiệt độ trong hộp đang ở <b>${state.sensor.temp}°C</b> (vượt ngưỡng ${TEMP_WARN}°C). `:''}
+        ${humWarn?`Độ ẩm đang ở <b>${state.sensor.hum}%</b> (vượt ngưỡng ${HUM_WARN}%). `:''}
+        Kiểm tra vị trí đặt hộp thuốc, tránh ánh nắng và nơi ẩm ướt.
+      </div>
+    </div>
+  </div>
+
+  <div class="stat-grid">
+    <div class="stat-card" style="--c:var(--green)">
+      <div class="stat-icon">✅</div>
+      <div class="stat-label">Đã uống hôm nay</div>
+      <div class="stat-value" style="color:var(--green)">${todayDone}/3</div>
+      <div class="stat-sub">buổi trong ngày</div>
+    </div>
+    <div class="stat-card" style="--c:${expiredCount>0?'var(--red)':'var(--green)'}">
+      <div class="stat-icon">⚠️</div>
+      <div class="stat-label">Thuốc hết hạn</div>
+      <div class="stat-value" style="color:${expiredCount>0?'var(--red)':'var(--green)'}">${expiredCount}</div>
+      <div class="stat-sub">${lowQty} loại sắp hết số lượng</div>
+    </div>
+    <div class="stat-card" style="--c:${storageAlert?'var(--orange)':'var(--teal)'}">
+      <div class="stat-icon">📦</div>
+      <div class="stat-label">Bảo quản</div>
+      <div class="stat-value" style="color:${storageAlert?'var(--orange)':'var(--teal)'}">
+        ${storageAlert?'⚠️':'OK'}
+      </div>
+      <div class="stat-sub">${storageAlert?'Vượt ngưỡng an toàn':'Điều kiện tốt'}</div>
+    </div>
+  </div>
+
+  <div class="env-big">
+    <div class="env-big-card" style="--c:${tempWarn?'var(--orange)':'var(--accent)'}">
+      <div class="env-big-icon">🌡️</div>
+      <div class="env-big-val" style="color:${tempWarn?'var(--orange)':'var(--accent)'}">${state.sensor.temp}${state.sensor.temp!=='--'?'°C':''}</div>
+      <div class="env-big-lbl">Nhiệt độ trong hộp thuốc ${tempWarn?'— <span style="color:var(--orange);font-weight:600">Quá cao!</span>':''}</div>
+    </div>
+    <div class="env-big-card" style="--c:${humWarn?'var(--orange)':'var(--teal)'}">
+      <div class="env-big-icon">💧</div>
+      <div class="env-big-val" style="color:${humWarn?'var(--orange)':'var(--teal)'}">${state.sensor.hum}${state.sensor.hum!=='--'?'%':''}</div>
+      <div class="env-big-lbl">Độ ẩm trong hộp thuốc ${humWarn?'— <span style="color:var(--orange);font-weight:600">Quá cao!</span>':''}</div>
+    </div>
+  </div>
+
+  <div class="row2">
+    <div class="card">
+      <div class="card-title">Đồng hồ hệ thống</div>
+      <div class="clock-display" id="liveClock">${state.sensor.time}</div>
+      <div class="clock-date"   id="liveDate">${state.sensor.day} — ${state.sensor.date}</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Trạng thái hộp thuốc</div>
+      <div class="lock-display">
+        <div class="lock-icon-wrap ${state.box.locked?'locked':'unlocked'}">${state.box.locked?'🔒':'🔓'}</div>
+        <div class="lock-label" style="color:${state.box.locked?'var(--green)':'var(--yellow)'}">${state.box.locked?'Đang khóa':'Đang mở'}</div>
+        <div class="lock-time">${state.box.lastAction||'Chưa có hoạt động hôm nay'}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row2">
+    <div class="card">
+      <div class="card-title">Lịch uống thuốc hôm nay</div>
+      <div class="dose-row">
+        ${state.schedule.map(s=>{
+          const now = new Date(); const slotTime = new Date(); slotTime.setHours(s.hour,s.min,0);
+          const status = s.done?'done':slotTime<now?'missed':'waiting';
+          const pill = {done:'✅ Đã uống',missed:'❌ Bỏ lỡ',waiting:'⏳ Chờ'};
+          return `<div class="dose-item">
+            <div>
+              <div class="dose-time">${String(s.hour).padStart(2,'0')}:${String(s.min).padStart(2,'0')}</div>
+              <div class="dose-name">${s.session} · ${s.med}</div>
+            </div>
+            <span class="pill ${status}">${pill[status]}</span>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Thống kê 7 ngày qua</div>
+      <div class="chart-wrap"><canvas id="weekChart"></canvas></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Nhật ký hệ thống</div>
+    <div class="log-box" id="logBox">
+      ${state.logs.slice(0,20).map(l=>`<div class="log-line"><span class="log-time">${l.time}</span><span class="log-msg ${l.type}">${l.msg}</span></div>`).join()||'<div style="color:var(--text-3)">Chưa có sự kiện nào...</div>'}
+    </div>
+  </div>`;
+}
+
+// ── SCHEDULE ──
+function pageSchedule(){
+  return `
+  <div class="page-title">Lịch uống thuốc</div>
+  <div class="page-sub">Cài đặt giờ nhắc nhở và tên thuốc — gửi về ESP32 qua MQTT</div>
+  <div class="row3">
+    ${state.schedule.map(s=>`
+    <div class="card">
+      <div class="card-title">${s.session==='Sáng'?'🌅':s.session==='Trưa'?'☀️':'🌆'} Buổi ${s.session}</div>
+      <div class="schedule-form">
+        <div class="schedule-row">
+          <span class="schedule-label">Giờ</span>
+          <input class="time-input" type="time" id="time_${s.id}" value="${String(s.hour).padStart(2,'0')}:${String(s.min).padStart(2,'0')}">
+        </div>
+        <div class="schedule-row">
+          <span class="schedule-label">Thuốc</span>
+          <input class="med-name-input" type="text" id="med_${s.id}" value="${s.med}" placeholder="Tên thuốc...">
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="saveSchedule(${s.id})">💾 Lưu &amp; Gửi</button>
+      </div>
+    </div>`).join('')}
+  </div>
+  <div class="card">
+    <div class="card-title">Đồng bộ lịch</div>
+    <div style="display:flex;gap:12px;margin-top:4px">
+      <button class="btn btn-primary" onclick="sendAllSchedule()">📡 Gửi tất cả qua MQTT</button>
+      <button class="btn btn-teal"    onclick="syncFromDevice()">🔄 Đồng bộ từ thiết bị</button>
+    </div>
+  </div>`;
+}
+
+// ── MEDICINES ──
+function pageMedicines(){
+  const totalQty  = state.medicines.reduce((a,m)=>a+m.qty,0);
+  const expCount  = state.medicines.filter(m=>m.status==='expired').length;
+  return `
+  <div class="page-title">Quản lý thuốc</div>
+  <div class="page-sub">Theo dõi số lượng, hạn sử dụng và tên thuốc trong hộp</div>
+  <div class="stat-grid" style="margin-bottom:20px">
+    <div class="stat-card" style="--c:var(--accent)"><div class="stat-label">Tổng loại thuốc</div><div class="stat-value">${state.medicines.length}</div></div>
+    <div class="stat-card" style="--c:var(--teal)"><div class="stat-label">Tổng viên trong hộp</div><div class="stat-value">${totalQty}</div></div>
+    <div class="stat-card" style="--c:${expCount?'var(--red)':'var(--green)'}"><div class="stat-label">Hết hạn / cảnh báo</div><div class="stat-value" style="color:${expCount?'var(--red)':'var(--green)'}">${expCount}</div></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Thêm thuốc mới</div>
+    <div class="add-med-form">
+      <input class="form-input" id="newMedName" placeholder="Tên thuốc..." style="width:200px">
+      <input class="form-input" id="newMedQty" type="number" placeholder="SL" min="1" style="width:70px">
+      <input class="form-input" id="newMedExp" type="month" title="Hạn sử dụng" style="width:140px">
+      <button class="btn btn-primary" onclick="addMedicine()">+ Thêm</button>
+    </div>
+    <div class="divider"></div>
+    <div class="med-list">
+      ${state.medicines.map(m=>`
+      <div class="med-item">
+        <div><div class="med-name">${m.name}</div><div class="med-qty">Còn: <b>${m.qty}</b> viên &nbsp;·&nbsp; HSD: ${m.exp}</div></div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="med-exp ${m.status}">${m.status==='ok'?'✅ Còn hạn':m.status==='warning'?'⚠️ Sắp hết hạn':'❌ Hết hạn'}</span>
+          <button class="btn btn-danger btn-sm" onclick="removeMedicine(${m.id})">Xóa</button>
+        </div>
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+// ── CONTROL ──
+function pageControl(){
+  return `
+  <div class="page-title">Điều khiển từ xa</div>
+  <div class="page-sub">Mở / đóng hộp thuốc và quản lý cảnh báo qua MQTT</div>
+  <div class="row2">
+    <div class="card">
+      <div class="card-title">Điều khiển hộp thuốc (Servo)</div>
+      <div style="text-align:center;padding:16px 0 8px">
+        <div class="lock-icon-wrap ${state.box.locked?'locked':'unlocked'}" style="margin:0 auto 12px">${state.box.locked?'🔒':'🔓'}</div>
+        <div style="font-size:14px;font-weight:600;color:${state.box.locked?'var(--green)':'var(--yellow)'}">${state.box.locked?'Hộp đang KHÓA':'Hộp đang MỞ'}</div>
+      </div>
+      <div class="servo-btns">
+        <button class="servo-btn servo-btn-open"  onclick="controlServo('open')"><span class="servo-btn-icon">🔓</span> Mở hộp</button>
+        <button class="servo-btn servo-btn-close" onclick="controlServo('close')"><span class="servo-btn-icon">🔒</span> Đóng hộp</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Kích hoạt báo thức</div>
+      <div class="servo-btns" style="flex-direction:column">
+        <button class="servo-btn" style="background:#3b82f620;color:var(--accent);border:1px solid #3b82f640" onclick="triggerAlarm()"><span class="servo-btn-icon">🔔</span> Báo nhắc uống thuốc ngay</button>
+        <button class="servo-btn" style="background:#ef444420;color:var(--red);border:1px solid #ef444440"   onclick="stopAlarm()"><span class="servo-btn-icon">🔕</span> Tắt chuông</button>
+      </div>
+    </div>
+  </div>
+  <div class="row2">
+    <div class="card">
+      <div class="card-title">Trạng thái SOS</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0">
+        <div><div style="font-size:14px;font-weight:600">Chế độ khẩn cấp</div><div style="font-size:12px;color:var(--text-2)">Bật / tắt còi SOS trên thiết bị</div></div>
+        <div style="display:flex;gap:10px">
+          <button class="btn btn-danger" onclick="triggerSOS()">🚨 Bật SOS</button>
+          <button class="btn" style="background:var(--bg-base);border:1px solid var(--border)" onclick="stopSOS()">Tắt SOS</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Nhật ký lệnh gửi</div>
+      <div class="log-box">
+        ${state.logs.slice(0,15).map(l=>`<div class="log-line"><span class="log-time">${l.time}</span><span class="log-msg ${l.type}">${l.msg}</span></div>`).join()||'<div style="color:var(--text-3)">Chưa có lệnh nào...</div>'}
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── RFID ──
+function pageRFID(){
+  return `
+  <div class="page-title">Quản lý thẻ RFID</div>
+  <div class="page-sub">Thêm, xóa, bật/tắt thẻ được phép mở hộp thuốc</div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">Thêm thẻ mới</div>
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+      <div class="form-group"><div class="form-label">UID thẻ</div><input class="form-input" id="newUID" placeholder="VD: A1B2C3D4" style="text-transform:uppercase"></div>
+      <div class="form-group"><div class="form-label">Tên / mô tả</div><input class="form-input" id="newUIDName" placeholder="Thẻ của..."></div>
+      <button class="btn btn-primary" onclick="addRFID()">+ Thêm thẻ</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Danh sách thẻ hợp lệ (${state.rfid.length})</div>
+    <div class="rfid-list">
+      ${state.rfid.map((r,i)=>`
+      <div class="rfid-item">
+        <div><div class="rfid-uid">${r.uid}</div><div class="rfid-name">${r.name}</div></div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <button class="rfid-toggle ${r.active?'on':'off'}" title="${r.active?'Đang bật':'Đang tắt'}" onclick="toggleRFID(${i})"></button>
+          <button class="btn btn-danger btn-sm" onclick="removeRFID(${i})">Xóa</button>
+        </div>
+      </div>`).join('')}
+    </div>
+    <div class="divider"></div>
+    <button class="btn btn-primary" onclick="syncRFID()">📡 Đồng bộ danh sách về ESP32</button>
+  </div>`;
+}
+
+// ── HISTORY ──
+function pageHistory(){
+  return `
+  <div class="page-title">Lịch sử uống thuốc</div>
+  <div class="page-sub">Theo dõi từng lần quét thẻ và xác nhận đã uống</div>
+  <div class="row2" style="margin-bottom:16px">
+    <div class="card"><div class="card-title">Biểu đồ 7 ngày</div><div class="chart-wrap"><canvas id="histChart"></canvas></div></div>
+    <div class="card"><div class="card-title">Tỷ lệ tuân thủ</div><div class="chart-wrap"><canvas id="pieChart"></canvas></div></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Chi tiết lịch sử</div>
+    <table class="hist-table">
+      <thead><tr><th>Ngày</th><th>Buổi</th><th>Thuốc</th><th>Giờ quét</th><th>UID thẻ</th><th>Trạng thái</th></tr></thead>
+      <tbody>
+        ${state.history.slice(0,30).map(h=>`
+        <tr>
+          <td>${h.date}</td><td>${h.session}</td><td>${h.med}</td><td>${h.time}</td>
+          <td style="font-family:var(--mono);font-size:11px;color:var(--accent)">${h.uid}</td>
+          <td><span class="pill ${h.status}">${h.status==='done'?'✅ Đã uống':h.status==='missed'?'❌ Bỏ lỡ':'⏳ Chờ'}</span></td>
+        </tr>`).join()||`<tr><td colspan="6" style="text-align:center;color:var(--text-3);padding:24px">Chưa có dữ liệu</td></tr>`}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+// ── SETTINGS ──
+function pageSettings(){
+  return `
+  <div class="page-title">Cài đặt kết nối</div>
+  <div class="page-sub">Cấu hình MQTT broker để kết nối với ESP32</div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">Cấu hình MQTT Broker</div>
+    <div class="mqtt-form">
+      <div class="form-group"><div class="form-label">Broker Host</div><input class="form-input" id="cfgBroker" value="${state.mqtt.broker}"></div>
+      <div class="form-group"><div class="form-label">Port (WSS)</div><input class="form-input short" id="cfgPort" type="number" value="${state.mqtt.port}"></div>
+      <div class="form-group"><div class="form-label">Topic prefix</div><input class="form-input" id="cfgTopic" value="${state.mqtt.topic}"></div>
+      <div class="form-group"><div class="form-label">Username</div><input class="form-input" id="cfgUser" value="${state.mqtt.user}"></div>
+      <div class="form-group"><div class="form-label">Password</div><input class="form-input" id="cfgPass" type="password" value="${state.mqtt.pass}"></div>
+    </div>
+    <div style="margin-top:16px;display:flex;gap:10px">
+      <button class="btn btn-primary" onclick="applySettings()">🔌 Kết nối lại</button>
+      <button class="btn btn-danger"  onclick="disconnectMQTT()">⏹ Ngắt kết nối</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Topics MQTT sử dụng</div>
+    <table class="hist-table" style="margin-top:4px">
+      <thead><tr><th>Topic</th><th>Hướng</th><th>Mô tả</th></tr></thead>
+      <tbody>
+        ${[
+          [state.mqtt.topic+'/sensor','ESP32 → Web','Nhiệt độ, độ ẩm (JSON)'],
+          [state.mqtt.topic+'/status','ESP32 → Web','Trạng thái hộp + cảnh báo DHT'],
+          [state.mqtt.topic+'/sos',   'ESP32 → Web','Tín hiệu SOS khẩn cấp'],
+          [state.mqtt.topic+'/rfid',  'ESP32 → Web','Sự kiện quét thẻ + xác nhận'],
+          [state.mqtt.topic+'/cmd',   'Web → ESP32','Lệnh điều khiển servo, alarm'],
+          [state.mqtt.topic+'/schedule','↔ Hai chiều','Lịch uống thuốc cập nhật'],
+          [state.mqtt.topic+'/rfid_list','Web → ESP32','Danh sách UID hợp lệ'],
+        ].map(([t,d,desc])=>`<tr>
+          <td style="font-family:var(--mono);font-size:11px;color:var(--accent)">${t}</td>
+          <td style="font-size:11px;color:var(--text-2)">${d}</td>
+          <td style="font-size:12px">${desc}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>
+  <div class="card" style="margin-top:16px">
+    <div class="card-title">Ngưỡng cảnh báo bảo quản thuốc</div>
+    <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-top:4px">
+      <div style="font-size:13px;color:var(--text-2)">🌡️ Nhiệt độ tối đa: <b style="color:var(--orange)">${TEMP_WARN}°C</b></div>
+      <div style="font-size:13px;color:var(--text-2)">💧 Độ ẩm tối đa: <b style="color:var(--orange)">${HUM_WARN}%</b></div>
+      <div style="font-size:12px;color:var(--text-3)">Khi vượt ngưỡng, LED SOS trên ESP32 chớp tắt và cảnh báo hiện trên web</div>
+    </div>
+  </div>`;
+}
+
+// ── CHARTS ──
+function afterRender(){
+  if(document.getElementById('weekChart')) initWeekChart('weekChart');
+  if(document.getElementById('histChart')) initWeekChart('histChart');
+  if(document.getElementById('pieChart'))  initPieChart();
+}
+function initWeekChart(id){
+  const ctx = document.getElementById(id).getContext('2d');
+  const c = themeColors();
+  new Chart(ctx,{
+    type:'bar',
+    data:{ labels:state.chartData.labels, datasets:[
+      {label:'Đã uống',data:state.chartData.done,  backgroundColor:'#22c55e50',borderColor:'#22c55e',borderWidth:1.5,borderRadius:4},
+      {label:'Bỏ lỡ', data:state.chartData.missed, backgroundColor:'#ef444450',borderColor:'#ef4444',borderWidth:1.5,borderRadius:4},
+    ]},
+    options:{ responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:c.text2,font:{size:11}}}},
+      scales:{ x:{ticks:{color:c.text2,font:{size:10}},grid:{color:c.grid}}, y:{ticks:{color:c.text2,font:{size:10}},grid:{color:c.grid},max:3} }
+    }
+  });
+}
+function initPieChart(){
+  const done   = state.chartData.done.reduce((a,b)=>a+b,0);
+  const missed = state.chartData.missed.reduce((a,b)=>a+b,0);
+  const ctx = document.getElementById('pieChart').getContext('2d');
+  const c = themeColors();
+  new Chart(ctx,{
+    type:'doughnut',
+    data:{ labels:['Đã uống','Bỏ lỡ'], datasets:[{data:[done,missed],backgroundColor:['#22c55e80','#ef444480'],borderColor:['#22c55e','#ef4444'],borderWidth:2}] },
+    options:{ responsive:true,maintainAspectRatio:false, plugins:{legend:{position:'bottom',labels:{color:c.text2,font:{size:11},padding:16}}} }
+  });
+}
+
+// ══════════════════════════════════════════════════════
+// ACTIONS
+// ══════════════════════════════════════════════════════
+function saveSchedule(id){
+  const s = state.schedule.find(x=>x.id===id);
+  const t = document.getElementById(`time_${id}`).value.split(':');
+  s.hour = parseInt(t[0]); s.min = parseInt(t[1]);
+  s.med  = document.getElementById(`med_${id}`).value;
+  publish('schedule', {id, hour:s.hour, min:s.min, med:s.med});
+  toast(`Đã lưu lịch buổi ${s.session}`, 'success');
+  log(`Cập nhật lịch ${s.session}: ${s.hour}:${String(s.min).padStart(2,'0')} — ${s.med}`, 'success');
+}
+function sendAllSchedule(){ publish('schedule', state.schedule.map(s=>({id:s.id,hour:s.hour,min:s.min,med:s.med}))); toast('Đã gửi toàn bộ lịch về ESP32','success'); }
+function syncFromDevice(){ publish('cmd',{action:'get_schedule'}); toast('Đã yêu cầu đồng bộ từ thiết bị','info'); }
+function controlServo(action){
+  publish('cmd',{action:action==='open'?'servo_open':'servo_close'});
+  state.box.locked = action!=='open';
+  state.box.lastAction = `${action==='open'?'Mở':'Đóng'} lúc ${new Date().toLocaleTimeString('vi-VN')}`;
+  toast(action==='open'?'Đã mở hộp thuốc':'Đã đóng hộp thuốc', action==='open'?'info':'success');
+  log(`Lệnh servo: ${action}`, 'info'); render();
+}
+function triggerAlarm(){ publish('cmd',{action:'alarm_on'});  toast('Đã kích hoạt báo thức','info'); }
+function stopAlarm()   { publish('cmd',{action:'alarm_off'}); toast('Đã tắt báo thức','success'); }
+
+function activateSOS(){
+  state.sos = true;
+  document.getElementById('sosOverlay').classList.add('active');
+  document.getElementById('sosTime').textContent = 'Nhận lúc: '+new Date().toLocaleTimeString('vi-VN');
+  document.getElementById('sosBadge').classList.add('active');
+  try{
+    const ctx = new(window.AudioContext||window.webkitAudioContext)(); let t = ctx.currentTime;
+    const beep = ()=>{ const o=ctx.createOscillator(),g=ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.type='square'; o.frequency.value=880; g.gain.setValueAtTime(.3,t); g.gain.exponentialRampToValueAtTime(.001,t+.3); o.start(t); o.stop(t+.3); t+=.5; };
+    for(let i=0;i<6;i++) beep();
+  }catch(e){}
+  log('🚨 SOS NHẬN TỪ THIẾT BỊ!','error');
+  toast('🚨 KHẨN CẤP! Người bệnh cần hỗ trợ!','error');
+  document.title = '🚨 SOS KHẨN CẤP — MedBox';
+}
+function hideSOS(){
+  state.sos = false;
+  document.getElementById('sosOverlay').classList.remove('active');
+  document.getElementById('sosBadge').classList.remove('active');
+  document.title = 'MedBox — Hệ thống nhắc uống thuốc thông minh';
+  log('SOS đã được xử lý','success');
+}
+function dismissSOS(){ publish('cmd',{action:'sos_off'}); hideSOS(); toast('Đã xác nhận xử lý SOS','success'); }
+function callEmergency(){ window.open('tel:115'); toast('Đang gọi 115...','info'); log('Gọi cấp cứu 115','warn'); }
+function triggerSOS(){ publish('sos',{active:true}); activateSOS(); log('SOS: bật thủ công từ web','error'); }
+function stopSOS(){ publish('cmd',{action:'sos_off'}); hideSOS(); toast('SOS đã tắt','success'); log('SOS: tắt từ web','warn'); }
+
+function addMedicine(){
+  const name = document.getElementById('newMedName').value.trim();
+  const qty  = parseInt(document.getElementById('newMedQty').value)||0;
+  const exp  = document.getElementById('newMedExp').value;
+  if(!name){ toast('Vui lòng nhập tên thuốc','error'); return; }
+  const now = new Date(); const expDate = new Date(exp+'-01');
+  const status = !exp?'ok':expDate<now?'expired':(expDate-now)<90*86400000?'warning':'ok';
+  state.medicines.push({id:Date.now(),name,qty,exp:exp||'—',status});
+  toast(`Đã thêm: ${name}`,'success'); render();
+}
+function removeMedicine(id){ state.medicines = state.medicines.filter(m=>m.id!==id); toast('Đã xóa thuốc','info'); render(); }
+function addRFID(){
+  const uid  = document.getElementById('newUID').value.trim().toUpperCase();
+  const name = document.getElementById('newUIDName').value.trim()||'Không tên';
+  if(uid.length<8){ toast('UID cần ít nhất 8 ký tự','error'); return; }
+  if(state.rfid.find(r=>r.uid===uid)){ toast('UID đã tồn tại','error'); return; }
+  state.rfid.push({uid,name,active:true});
+  toast(`Đã thêm thẻ ${uid}`,'success'); render();
+}
+function removeRFID(i){ state.rfid.splice(i,1); toast('Đã xóa thẻ','info'); render(); }
+function toggleRFID(i){ state.rfid[i].active = !state.rfid[i].active; render(); }
+function syncRFID(){
+  const list = state.rfid.filter(r=>r.active).map(r=>r.uid);
+  publish('rfid_list',{uids:list});
+  toast(`Đã đồng bộ ${list.length} thẻ về ESP32`,'success');
+}
+function applySettings(){
+  state.mqtt.broker = document.getElementById('cfgBroker').value;
+  state.mqtt.port   = parseInt(document.getElementById('cfgPort').value);
+  state.mqtt.topic  = document.getElementById('cfgTopic').value;
+  state.mqtt.user   = document.getElementById('cfgUser').value;
+  state.mqtt.pass   = document.getElementById('cfgPass').value;
+  mqttConnect();
+}
+function disconnectMQTT(){
+  if(state.client) state.client.end(true);
+  state.connected = false; updateMqttUI('error');
+  toast('Đã ngắt kết nối MQTT','info');
+}
+
+// ══════════════════════════════════════════════════════
+// BOOT — tự động kết nối MQTT khi mở trang
+// ══════════════════════════════════════════════════════
+log('Hệ thống khởi động', 'success');
+log(`Broker: ${state.mqtt.broker}:${state.mqtt.port}`, 'info');
+log(`Topic: ${state.mqtt.topic}`, 'info');
+render();
+mqttConnect();   // ★ TỰ ĐỘNG KẾT NỐI NGAY KHI MỞ TRANG
+</script>
+</body>
+</html>
